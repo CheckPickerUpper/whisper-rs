@@ -815,6 +815,14 @@ impl<'a, 'b> FullParams<'a, 'b> {
             .into_raw() as *const c_char;
     }
 
+    /// Carry the initial prompt into every decoding window.
+    ///
+    /// Defaults to false. When enabled, whisper.cpp prepends the initial prompt
+    /// to each window rather than using it only for the first window.
+    pub fn set_carry_initial_prompt(&mut self, carry_initial_prompt: bool) {
+        self.fp.carry_initial_prompt = carry_initial_prompt;
+    }
+
     /// Enable or disable VAD.
     ///
     /// # Panics
@@ -885,6 +893,16 @@ unsafe impl Sync for FullParams<'_, '_> {}
 #[cfg(test)]
 mod test_whisper_params_initial_prompt {
     use super::*;
+
+    #[test]
+    fn test_carry_initial_prompt_enabled_and_disabled() {
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 5 });
+        assert!(!params.fp.carry_initial_prompt);
+        params.set_carry_initial_prompt(true);
+        assert!(params.fp.carry_initial_prompt);
+        params.set_carry_initial_prompt(false);
+        assert!(!params.fp.carry_initial_prompt);
+    }
 
     impl<'a, 'b> FullParams<'a, 'b> {
         pub fn get_initial_prompt(&self) -> &str {
