@@ -1,3 +1,5 @@
+This fork of [the Codeberg original](https://codeberg.org/tazz4843/whisper-rs) exists only to add `carry_initial_prompt` for Gedō until upstream releases the setter.
+
 # whisper-rs
 
 Rust bindings to [whisper.cpp](https://github.com/ggerganov/whisper.cpp/)
