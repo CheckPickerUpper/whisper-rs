@@ -276,12 +276,9 @@ fn main() {
     }
 
     // Allow passing any WHISPER or CMAKE compile flags
+    declare_forwarded_variables(&whisper_root);
     for (key, value) in env::vars() {
-        let is_whisper_flag =
-            key.starts_with("WHISPER_") && key != "WHISPER_DONT_GENERATE_BINDINGS";
-        let is_ggml_flag = key.starts_with("GGML_");
-        let is_cmake_flag = key.starts_with("CMAKE_");
-        if is_whisper_flag || is_ggml_flag || is_cmake_flag {
+        if is_forwarded_variable(&key) {
             config.define(&key, &value);
         }
     }
@@ -297,6 +294,9 @@ fn main() {
         config.define("CMAKE_C_COMPILER", "icx");
         config.define("CMAKE_CXX_COMPILER", "icpx");
     }
+
+    // A variable removed since the last run would otherwise survive in the CMake cache.
+    let _ = std::fs::remove_file(out.join("build").join("CMakeCache.txt"));
 
     let destination = config.build();
 
@@ -354,6 +354,61 @@ fn main() {
 
     // for whatever reason this file is generated during build and triggers cargo complaining
     _ = std::fs::remove_file("bindings/javascript/package.json");
+}
+
+fn is_forwarded_variable(key: &str) -> bool {
+    let is_whisper_flag = key.starts_with("WHISPER_") && key != "WHISPER_DONT_GENERATE_BINDINGS";
+    let is_ggml_flag = key.starts_with("GGML_");
+    let is_cmake_flag = key.starts_with("CMAKE_");
+    is_whisper_flag || is_ggml_flag || is_cmake_flag
+}
+
+// Cargo reruns a build script only for the variables it declares. Declaring every
+// forwarded variable that is set covers a changed or removed value; declaring every
+// option whisper.cpp's CMake files define covers one that is set for the first time.
+fn declare_forwarded_variables(whisper_root: &std::path::Path) {
+    println!("cargo:rerun-if-env-changed=WHISPER_DONT_GENERATE_BINDINGS");
+    let mut declared: std::collections::BTreeSet<String> = env::vars()
+        .map(|(key, _)| key)
+        .filter(|key| is_forwarded_variable(key))
+        .collect();
+    let mut cmake_lists = Vec::new();
+    collect_cmake_lists(whisper_root, &mut cmake_lists);
+    for cmake_list in cmake_lists {
+        let Ok(cmake_source) = std::fs::read_to_string(&cmake_list) else {
+            continue;
+        };
+        for declaration in cmake_source.split("option(").skip(1) {
+            let option_name: String = declaration
+                .trim_start()
+                .chars()
+                .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+                .collect();
+            if is_forwarded_variable(&option_name) {
+                declared.insert(option_name);
+            }
+        }
+    }
+    for key in declared {
+        println!("cargo:rerun-if-env-changed={}", key);
+    }
+}
+
+fn collect_cmake_lists(directory: &std::path::Path, cmake_lists: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_cmake_lists(&path, cmake_lists);
+        } else if path
+            .file_name()
+            .is_some_and(|name| name == "CMakeLists.txt")
+        {
+            cmake_lists.push(path);
+        }
+    }
 }
 
 // From https://github.com/alexcrichton/cc-rs/blob/fba7feded71ee4f63cfe885673ead6d7b4f2f454/src/lib.rs#L2462
